@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+
+# Generated run directories: decks, subroutines, results, figures.
+runs/
+
+# Abaqus artefacts, wherever they land.  The ODB in particular is large.
+*.odb
+*.inp
+*.sta
+*.msg
+*.dat
+*.prt
+*.com
+*.sim
+*.lck
+*.mdl
+*.stt
+*.abq
+*.pac
+*.res
+*.fil
+*.023
+submit.sh
+run.sh
+*_mesh.json
