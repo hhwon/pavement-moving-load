@@ -163,20 +163,38 @@ python -m movingload.plots compare runs/flexible_vertical \
                                    runs/rigid_vertical
 ```
 
-The mid-span pulse has the canonical asymmetric *approach – peak – leave* shape,
-peaking at t ≈ 0.5 when the tyre is directly overhead:
+The mid-span signature is **not** a single bump. It is the hog–sag–hog bending
+wave of the pavement travelling past a fixed point:
 
 ```
-  E33
+  E33 (µε)
    ▲
-   │            ⌒
-   │           ╱ ╲
-   │          ╱   ╲
- 0 │───────╌─╯     ╰─╌───────
-   │
-   └──────────────────────────►  t
-       approach  peak  leave
+ +5│                    ╱╲            ← sag: tyre directly overhead
+   │                   ╱  ╲
+   │  ┄┄┄┄┄┄┄┄┄┄┄┄╮   ╱    ╲   ╭┄┄┄┄┄┄┄┄┄┄┄┄   ← distant: mild tension
+  0│──────────────╲──╱──────╲─╱──────────────
+   │               ╲╱        ╲╱
+   │               ▼          ▼   ← hog: tyre ~0.2–0.3 m before / after
+-10│
+   └────────────────────────────────────────►  t
+                 0.48  0.51  0.54
 ```
+
+Measured on the reference case (semi-rigid, vertical): a +1.7 µε plateau while
+the tyre is elsewhere, a compression trough of −8.8 µε as it approaches, a
++4.8 µε tension spike as it passes directly overhead, and a second trough of
+−9.2 µε as it leaves. **The extreme value is compressive**, and it is the second
+trough, not the overhead instant.
+
+The tension spike marks the overhead crossing: it lands at
+`motion.time_over(z_obs)` where `z_obs` is the observation element's centroid
+(3.55 m by default, so t = 0.507).
+
+> **Resolution caveat.** With the default `dt = 0.01` the load advances 76 mm per
+> increment, while the tyre print is 213 mm across and the observation element is
+> 100 mm long — the entire passage is captured in three or four samples. The
+> *shape* is converged; the *peak magnitude* is not. Refine `Step.dt`, and
+> `Mesh.dz` with it, if the magnitude is what you need.
 
 `compare` also prints a peak table (maximum, minimum, and the times they occur).
 

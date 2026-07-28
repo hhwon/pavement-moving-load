@@ -228,8 +228,9 @@ Strains are converted to microstrain for display; the CSVs stay in strain.
 | `interactive` in the run script | present |
 | `SUBROUTINE` count in `dload.f` | 1 vertical, 2 with traction |
 | `*DSLOAD` in the deck | only for traction cases |
-| pulse peak time | `motion.time_over(LZ/2)` — 0.5 by default |
+| tension-spike time | `motion.time_over(z_obs)`, `z_obs` = observation element *centroid* — 0.507 by default, **not** 0.5 |
+| extreme value | compressive, at the second trough — see [model.md §8](model.md#8-what-the-signal-looks-like) |
 | element count across the three presets | identical (52 080) |
 
-Everything above except the pulse peak is covered by
+Everything above except the two signal checks is covered by
 `python tests/test_build.py`, which needs neither Abaqus nor a network.

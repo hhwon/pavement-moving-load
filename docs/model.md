@@ -178,23 +178,66 @@ in (position, time). `extract_strain.py` writes it whole
 
 ---
 
-## 8. What the pulse looks like
+## 8. What the signal looks like
+
+Not the single bump one might expect. Measured on the reference case
+(semi-rigid, vertical, default mesh):
+
+| `t` | `E33` (µε) | what the tyre is doing |
+|---|---|---|
+| 0.05 – 0.35 | ≈ +1.7 | far away; mild tension plateau |
+| **0.48** | **−8.8** | ≈ 0.2 m before the point |
+| **0.51** | **+4.8** | **directly overhead** |
+| **0.54** | **−9.2** | ≈ 0.2 m past the point |
+| 0.65 – 0.95 | ≈ +1.7 | receding; plateau again |
 
 ```
-  E33
+  E33 (µε)
    ▲
-   │            ⌒
-   │           ╱ ╲
-   │          ╱   ╲
- 0 │───────╌─╯     ╰─╌───────
-   │
-   └──────────────────────────►  t
-       approach  peak  leave
+ +5│                    ╱╲            sag  — tyre overhead
+   │                   ╱  ╲
+   │  ┄┄┄┄┄┄┄┄┄┄┄┄╮   ╱    ╲   ╭┄┄┄┄┄┄┄┄┄┄┄┄
+  0│──────────────╲──╱──────╲─╱──────────────
+   │               ╲╱        ╲╱
+   │               ▼          ▼       hog  — tyre before / after
+-10│
+   └────────────────────────────────────────►  t
+                 0.48  0.51  0.54
 ```
 
-Asymmetric *approach – peak – leave*, peaking at `t ≈ 0.5`. The magnitude and
-sign at that instant are the headline result.
+### Why two troughs
 
-Adding traction tilts the pulse: driving (`+z`) and braking (`−z`) shift the
-peak and change its magnitude relative to the vertical-only case, which is the
-point of the `accel` / `brake` presets.
+The loaded pavement bends into a **hog – sag – hog** shape: it dishes downward
+under the tyre and curves back upward on either side. That shape travels with
+the tyre, so a *fixed* observation point at the surface-layer bottom passes
+through all three zones in turn — hog (compression), sag (tension), hog
+(compression). The two troughs are one spatial wave seen twice, not two events.
+
+The consequences are worth stating plainly:
+
+- **The extreme value is compressive**, and it is the *second* trough — not the
+  overhead instant, and not a tensile peak. Any post-processing that assumes
+  "take the maximum tension" will report +4.8 µε and miss the −9.2 µε extreme.
+- **The overhead crossing is the tension spike.** It sits at
+  `motion.time_over(z_obs)` with `z_obs` the observation element's *centroid*
+  (3.55 m on the default grid, not 3.50), giving t = 0.507 — which is where the
+  measured spike lands.
+
+### Resolution
+
+With the default `dt = 0.01` the load advances **76 mm per increment**, the tyre
+print is **213 mm** across, and the observation element is **100 mm** long. The
+entire passage is therefore captured in three or four samples, and the plateau
+away from the load is visibly jagged because the loaded element set changes in
+discrete steps.
+
+The *shape* is converged; the *peak magnitude* is not. If the magnitude matters,
+refine `Step.dt` and `Mesh.dz` together — refining time alone just samples the
+same discretised load pattern more finely.
+
+### With traction
+
+Driving (`+z`) and braking (`−z`) break the fore–aft symmetry of the hog–sag–hog
+wave, so the two troughs stop being nearly equal and the spike shifts. Comparing
+`vertical`, `accel` and `brake` at the same structure is what the presets are
+for.

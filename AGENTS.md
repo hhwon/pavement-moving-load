@@ -124,11 +124,25 @@ python -m movingload.plots heatmap runs/<case>
 python -m movingload.plots compare runs/a runs/b runs/c
 ```
 
-**Sanity check.** The mid-span pulse must peak at `t ≈ 0.5`: with the default
-motion the tyre centre goes from z = −0.30 to +7.30 m, so it is over z = 3.5 m
-at exactly half the step. A peak anywhere else means the motion parameters in
-`dload.f` and the mesh have drifted apart. `Motion.time_over(z)` computes the
-expected crossing time for any z.
+**Sanity check.** The overhead crossing shows up as a **tension spike** at
+`motion.time_over(z_obs)`, where `z_obs` is the observation element's *centroid*
+(3.55 m on the default grid, so t = 0.507 — not 0.500). If the spike is
+somewhere else, the motion parameters baked into `dload.f` and the mesh have
+drifted apart.
+
+**Do not "take the peak tension".** The signal is compression-dominated: a
+hog–sag–hog bending wave travels with the tyre, so a fixed point sees
+compression, then tension as the tyre passes overhead, then compression again.
+On the reference case (semi-rigid, vertical) that is −8.8 µε at t = 0.48,
+**+4.8 µε at t = 0.51**, and **−9.2 µε at t = 0.54** — the extreme is the
+*second compression trough*, not the tensile spike. See
+[docs/model.md](docs/model.md#8-what-the-signal-looks-like).
+
+**The peak magnitude is under-resolved at default settings.** The load advances
+76 mm per increment, the print is 213 mm across, and the observation element is
+100 mm long, so the passage is three or four samples wide. The shape is
+converged; the magnitude is not. Refine `Step.dt` *and* `Mesh.dz` together if
+you need the number rather than the shape.
 
 ---
 

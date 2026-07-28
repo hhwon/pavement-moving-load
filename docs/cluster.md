@@ -41,9 +41,18 @@ Locally you need only `ssh` and `rsync`. Key-based authentication is assumed —
 
 ## Requirements on the cluster
 
-- **Abaqus/Standard** with a Fortran compiler configured for user subroutines.
-  Verify: `abaqus verify -user_std` on a compute node.
-- **SLURM** (`sbatch`, `squeue`, `sacct`).
+- **Abaqus/Standard**, plus **a Fortran compiler on the path**. Abaqus ships no
+  compiler of its own, and this model will not run without one: the moving load
+  *is* a user subroutine. At most sites the compiler is a separate module, so
+  load both:
+
+  ```bash
+  --module-load "module load compiler/intel/2021.3.0 apps/abaqus/2020"
+  ```
+
+  Confirm once with `abaqus verify -user_std` on a compute node.
+- **SLURM** (`sbatch`, `squeue`, `sacct`). Some sites reject jobs that do not
+  name a partition — see the troubleshooting table.
 - Nothing else. The run directory ships its own `extract_strain.py`, and that
   runs under Abaqus' bundled Python — no site Python packages required.
 
@@ -163,9 +172,10 @@ own `.msg` (increment-by-increment history) and `.sta` (convergence summary).
 |---|---|
 | `ClusterNotConfigured` | `MOVINGLOAD_SSH_HOST` or `MOVINGLOAD_REMOTE_ROOT` unset |
 | ssh fails immediately | key-based auth not set up (`BatchMode=yes` will not prompt) |
+| `Invalid account or account/partition combination specified` | the site has no usable default partition for your account — pass `--partition <name>` or set `MOVINGLOAD_PARTITION`. `sinfo -s` lists what is available |
 | job "completes" in seconds, no ODB | `interactive` missing from the abaqus line |
 | `abaqus: command not found` in the log | set `MOVINGLOAD_ABAQUS_MODULE`, or `MOVINGLOAD_ABAQUS_CMD` if the executable has a versioned name |
-| link/compile error mentioning `dload.f` | no Fortran compiler configured for user subroutines; check `abaqus verify -user_std` |
+| link/compile error mentioning `dload.f` | no Fortran compiler on the path. Abaqus ships no compiler of its own — load one **in addition to** Abaqus, e.g. `--module-load "module load compiler/intel/2021.3.0 apps/abaqus/2020"`. Confirm with `abaqus verify -user_std` |
 | `Requested node configuration is not available` | `--mem` / `--cpus` exceed what the partition offers |
 | killed at the wall clock, no `done` line | raise `--walltime` |
 | no CSVs came back | the solve failed before extraction — read the log |

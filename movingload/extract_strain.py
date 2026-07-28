@@ -11,9 +11,9 @@ column, then writes two CSVs beside the ODB:
     <job>_e33_history.csv    time, element_id, z_centre, E33   (whole column)
     <job>_e33_centre.csv     time, E33                         (mid-span only)
 
-The first is the full (t, z) field on the observation column — enough to
+The first is the full (t, z) field on the observation column -- enough to
 draw the strain wave travelling with the tyre.  The second is the canonical
-"approach – peak – leave" pulse at mid-span, which is what most analyses
+"approach - peak - leave" pulse at mid-span, which is what most analyses
 actually compare.
 
 Abaqus ships a frozen Python (2.7 in most releases, 3.x in recent ones), so
@@ -90,7 +90,7 @@ def collect(odb_path, obs_eids, z_centres):
 
 
 def write_csv(path, header, rows):
-    # 'wb' on Python 2, 'w' + newline='' on Python 3 — csv needs both.
+    # 'wb' on Python 2, 'w' + newline='' on Python 3 -- csv needs both.
     if sys.version_info[0] >= 3:
         handle = open(path, 'w', newline='')
     else:
@@ -131,7 +131,7 @@ def main():
         print('WARNING: %d observation elements had no E33 history output. '
               'Check that the deck requests E33 on ELSET=OBS_ELEMS.' % missing)
     if not rows:
-        print('ERROR: no E33 history collected — nothing to write.')
+        print('ERROR: no E33 history collected -- nothing to write.')
         return 2
     print('collected %d samples' % len(rows))
 

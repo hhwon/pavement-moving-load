@@ -341,6 +341,28 @@ def test_prepare_local_writes_run_sh_instead():
     assert not (out["run_dir"] / "submit.sh").exists()
 
 
+def test_extractor_is_pure_ascii():
+    """Abaqus' Python 2.7 rejects a source file containing non-ASCII bytes
+    unless it declares an encoding (PEP 263).  Typographic dashes and quotes
+    creep into docstrings very easily, and the failure only shows up on the
+    solver host, after the solve has already been paid for.  Staying ASCII
+    sidesteps the whole question.
+    """
+    path = REPO / "movingload" / "extract_strain.py"
+    raw = path.read_bytes()
+    if raw.startswith(b"#!") or b"coding" in raw[:100]:
+        return          # an explicit encoding declaration also settles it
+    for lineno, line in enumerate(raw.split(b"\n"), 1):
+        try:
+            line.decode("ascii")
+        except UnicodeDecodeError:
+            bad = next(b for b in line if b > 127)
+            raise AssertionError(
+                f"extract_strain.py:{lineno} contains non-ASCII byte "
+                f"0x{bad:02x} and declares no encoding — Abaqus Python 2.7 "
+                f"will refuse to parse it: {line[:70]!r}")
+
+
 def test_extractor_stays_within_abaqus_python():
     """extract_strain.py runs under Abaqus' frozen interpreter (2.7 in most
     releases), so it must avoid f-strings, pathlib and annotations.
