@@ -35,6 +35,13 @@ from typing import Optional, Sequence
 #: reduced it to CSV on the cluster.
 RESULT_PATTERNS = ("*.csv", "*.json", "*.log", "*.err", "*.sta", "*.msg", "*.dat")
 
+#: Output a previous run may have left behind, cleared before a fresh push.
+#: Inputs — the deck, `dload.f`, the scripts, the mesh sidecar — are not here.
+#: `fort.*` catches whatever a user subroutine wrote to a bare Fortran unit.
+STALE_GLOBS = ("*.csv", "*.odb", "*.dat", "*.msg", "*.sta", "*.fil", "*.log",
+               "*.err", "*.lck", "*.prt", "*.sim", "*.com", "*.res", "*.stt",
+               "*.mdl", "*.abq", "*.pac", "fort.*")
+
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
 
 
@@ -126,10 +133,38 @@ class Cluster:
     def mkdir(self, remote_dir: str) -> None:
         self.run(f"mkdir -p {self._expand(remote_dir)}", check=True)
 
-    def push(self, local_dir: str | Path, remote_dir: str) -> None:
-        """Mirror `local_dir/` to `host:remote_dir/`."""
+    def clear_results(self, remote_dir: str) -> bool:
+        """Delete a previous run's output from `remote_dir`, keeping the inputs.
+
+        rsync is run without `--delete`, so re-using a run directory leaves the
+        last run's CSVs in place.  A job that then dies *before* writing its own
+        would let `pull` bring the stale ones home, where they are
+        indistinguishable from fresh results.  Clearing first turns that silent
+        wrong answer into an obvious missing file.
+
+        This issues `rm -f` on the cluster, so it refuses any path that is
+        shallow or contains shell metacharacters.  Returns whether it ran.
+        """
+        d = remote_dir.rstrip("/")
+        depth = len([p for p in d.replace("~", "").split("/") if p])
+        if depth < 2 or any(c in d for c in " ;&|$`\n*?()<>'\"\\"):
+            return False
+        pattern = " ".join(f"{self._expand(d)}/{g}" for g in STALE_GLOBS)
+        self.run(f"rm -f {pattern}", check=False)
+        return True
+
+    def push(self, local_dir: str | Path, remote_dir: str,
+             clear_stale: bool = True) -> None:
+        """Mirror `local_dir/` to `host:remote_dir/`.
+
+        By default the previous run's output is removed first — see
+        `clear_results`.  Pass `clear_stale=False` to add to a directory whose
+        existing results you want to keep.
+        """
         local = str(Path(local_dir).resolve())
         self.mkdir(remote_dir)
+        if clear_stale:
+            self.clear_results(remote_dir)
         subprocess.run(
             self._rsync(local + "/", f"{self._require_host()}:{remote_dir}/",
                         excludes=("*.odb", "__pycache__", "*.pyc")),

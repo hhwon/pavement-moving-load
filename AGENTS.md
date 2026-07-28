@@ -106,6 +106,13 @@ submits and returns.
 The ODB is **not** pulled back — `extract_strain.py` already reduced it to CSV
 on the solver host, and an ODB of this model is hundreds of MB.
 
+**Re-running into the same directory.** rsync has no `--delete`, so `push`
+first calls `clear_results()` to remove the previous run's output. Without it,
+a job that dies before writing its CSVs lets `pull` bring the *old* ones back,
+where they look exactly like fresh results. If you drive `cluster` by hand
+rather than through `submit`, clear it yourself or check the remote
+timestamps.
+
 ---
 
 ## 4. Read the results

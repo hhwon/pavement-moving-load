@@ -426,6 +426,47 @@ def test_no_private_paths_or_hosts_anywhere():
     assert checked > 5, "sanitisation scan found almost nothing to check"
 
 
+def test_clear_results_targets_only_output():
+    """A re-used run directory must not hand back the previous run's CSVs.
+
+    rsync runs without --delete, so `push` clears the old output first.  This
+    issues `rm -f` on the cluster, so check exactly what it will and will not
+    touch — and that unsafe paths are refused rather than expanded.
+    """
+    from movingload.cluster import Cluster
+
+    cl = Cluster(host="user@example.org", remote_root="/scratch/x")
+    sent = []
+    cl.run = lambda cmd, check=True: sent.append(cmd)
+
+    for path in ("/scratch/me/movingload/case", "~/runs/case"):
+        sent.clear()
+        assert cl.clear_results(path) is True, path
+        assert len(sent) == 1
+        cmd = sent[0]
+        assert cmd.startswith("rm -f ")
+        globs = set()
+        for target in cmd[len("rm -f "):].split():
+            base = target.rsplit("/", 1)[1]
+            assert "*" in base and base != "*", target
+            globs.add(base)
+        # Inputs must survive.  Compare whole globs: '*.f' is a *substring* of
+        # '*.fil' but not the same pattern, and only '*.fil' is deleted.
+        for keep in ("*.inp", "*.f", "*.sh", "*.py", "*.json"):
+            assert keep not in globs, f"cleanup would delete inputs: {keep}"
+        # Concretely: the deck, the subroutine and the sidecar are untouched.
+        import fnmatch
+        for name in ("case.inp", "dload.f", "submit.sh", "run.sh",
+                     "extract_strain.py", "case_mesh.json"):
+            hit = [g for g in globs if fnmatch.fnmatch(name, g)]
+            assert not hit, f"{name} would be deleted by {hit}"
+
+    for unsafe in ("/", "~", "/tmp", "~/a; rm -rf /", "~/a/*/c", "~/`whoami`"):
+        sent.clear()
+        assert cl.clear_results(unsafe) is False, f"ran on {unsafe!r}"
+        assert not sent
+
+
 def test_cluster_refuses_without_configuration():
     """No baked-in SSH target: an unconfigured Cluster must fail loudly."""
     import os

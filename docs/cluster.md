@@ -161,6 +161,29 @@ cl.run("squeue -u $USER")                    # any remote command
 `RESULT_PATTERNS` (`*.csv *.json *.log *.err *.sta *.msg *.dat`) — override
 `patterns=` to widen or narrow it.
 
+### Re-using a run directory
+
+rsync runs **without `--delete`**, so pushing into a directory that already
+holds a previous run leaves that run's output in place. If the new job then
+dies *before* writing its own CSVs, `pull` brings the **old** ones home, and
+stale numbers are indistinguishable from fresh ones.
+
+`push` therefore calls `clear_results()` first: it deletes the output globs
+(`*.csv *.odb *.dat *.msg *.sta *.fil *.log …`, plus `fort.*`) and leaves the
+inputs — deck, `dload.f`, scripts, mesh sidecar — alone. A failed run then
+shows up as a missing file instead of a wrong answer.
+
+Because this is an `rm -f` on the cluster it refuses any path that is shallow
+or contains shell metacharacters, returning `False` without acting. To keep
+existing results, push with `clear_stale=False`.
+
+When in doubt, check the timestamps yourself:
+
+```bash
+ssh -p "$MOVINGLOAD_SSH_PORT" "$MOVINGLOAD_SSH_HOST" \
+    "ls -la --time-style=+%m-%d_%H:%M $MOVINGLOAD_REMOTE_ROOT/<case_id>"
+```
+
 ---
 
 ## Troubleshooting
