@@ -27,6 +27,11 @@ from movingload.slurm import Resources, local_script, slurm_script
 from movingload import submit as submit_mod
 
 
+#: Scripts that run under `abaqus python` (2.7 on Abaqus 2020 and earlier).
+ABAQUS_SIDE = [REPO / "movingload" / "extract_strain.py",
+               REPO / "movingload" / "extract_axi.py"]
+
+
 def _tmp() -> Path:
     return Path(tempfile.mkdtemp())
 
@@ -348,19 +353,19 @@ def test_extractor_is_pure_ascii():
     solver host, after the solve has already been paid for.  Staying ASCII
     sidesteps the whole question.
     """
-    path = REPO / "movingload" / "extract_strain.py"
-    raw = path.read_bytes()
-    if raw.startswith(b"#!") or b"coding" in raw[:100]:
-        return          # an explicit encoding declaration also settles it
-    for lineno, line in enumerate(raw.split(b"\n"), 1):
-        try:
-            line.decode("ascii")
-        except UnicodeDecodeError:
-            bad = next(b for b in line if b > 127)
-            raise AssertionError(
-                f"extract_strain.py:{lineno} contains non-ASCII byte "
-                f"0x{bad:02x} and declares no encoding — Abaqus Python 2.7 "
-                f"will refuse to parse it: {line[:70]!r}")
+    for path in ABAQUS_SIDE:
+        raw = path.read_bytes()
+        if raw.startswith(b"#!") or b"coding" in raw[:100]:
+            continue    # an explicit encoding declaration also settles it
+        for lineno, line in enumerate(raw.split(b"\n"), 1):
+            try:
+                line.decode("ascii")
+            except UnicodeDecodeError:
+                bad = next(b for b in line if b > 127)
+                raise AssertionError(
+                    f"{path.name}:{lineno} contains non-ASCII byte "
+                    f"0x{bad:02x} and declares no encoding — Abaqus Python 2.7 "
+                    f"will refuse to parse it: {line[:70]!r}")
 
 
 def test_extractor_stays_within_abaqus_python():
@@ -370,8 +375,12 @@ def test_extractor_stays_within_abaqus_python():
     Checks the parsed code, not the text: the module docstring legitimately
     mentions the very constructs it avoids.
     """
+    for path in ABAQUS_SIDE:
+        _check_py27_subset(path)
+
+
+def _check_py27_subset(path: Path) -> None:
     import ast
-    path = REPO / "movingload" / "extract_strain.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
 
     imported = set()
@@ -380,10 +389,10 @@ def test_extractor_stays_within_abaqus_python():
             imported |= {a.name.split(".")[0] for a in node.names}
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
-    assert "pathlib" not in imported, "pathlib is not in Abaqus Python 2.7"
+    assert "pathlib" not in imported, f"{path.name}: pathlib is not in Abaqus Python 2.7"
 
     for node in ast.walk(tree):
-        assert not isinstance(node, ast.JoinedStr), "f-string in extract_strain.py"
+        assert not isinstance(node, ast.JoinedStr), f"f-string in {path.name}"
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             assert node.returns is None, f"return annotation on {node.name}()"
             args = node.args
@@ -391,6 +400,251 @@ def test_extractor_stays_within_abaqus_python():
                       + list(getattr(args, "posonlyargs", []))):
                 assert a.annotation is None, f"annotation on {node.name}({a.arg})"
         assert not isinstance(node, ast.AnnAssign), "annotated assignment found"
+
+
+# ------------------------------------------------------- axisymmetric
+
+def _axi(structure="semi_rigid", material="elastic"):
+    from movingload.axi_config import make_axi_case
+    from movingload.axi_mesh import build_axi_grid
+    case = make_axi_case(structure, material)
+    return case, build_axi_grid(case)
+
+
+def test_axi_presets_build_for_every_structure_and_material():
+    from movingload.axi_config import ASPHALT_LAYERS, MATERIALS
+    from movingload.axi_inp import deck_lines
+    for name in STRUCTURES:
+        for material in MATERIALS:
+            case, grid = _axi(name, material)
+            deck = deck_lines(case, grid)
+            assert deck.count("*VISCOELASTIC, TIME=PRONY") == (
+                len(ASPHALT_LAYERS[name]) if material == "viscoelastic" else 0)
+            assert sum(1 for l in deck if l.startswith("*MATERIAL, NAME=")) \
+                == len(case.structure.names)
+
+
+def test_axi_viscoelastic_deck_essentials():
+    """Prony data needs explicit MODULI=INSTANTANEOUS (Abaqus' default is
+    LONG TERM), a *STATIC step first (the s = 0+ response) and *VISCO steps
+    after it — without *VISCO the Prony terms never act."""
+    from movingload.axi_inp import deck_lines
+    case, grid = _axi("semi_rigid", "viscoelastic")
+    deck = deck_lines(case, grid)
+    text = "\n".join(deck)
+    assert deck.count("*ELASTIC, MODULI=INSTANTANEOUS") == 2       # ASPHALT, BINDER
+    assert deck.count("*ELASTIC") == 2                             # GRANULAR, SUBGRADE
+    assert deck.count("*STATIC") == 1
+    assert deck.count("*VISCO") == len(case.creep.steps())
+    assert deck.index("*STATIC") < deck.index("*VISCO")
+    assert "CETOL" not in text, "fixed increments are what make output times known"
+    assert f"*ELEMENT, TYPE={case.mesh.element}," in text
+    assert "*DSLOAD, OP=NEW\nTYRE_PRINT, P," in text
+    assert "*ELEMENT OUTPUT, ELSET=OBS_ROW, POSITION=CENTROIDAL\nE," in text
+
+
+def test_axi_elastic_deck_has_no_viscoelasticity():
+    from movingload.axi_inp import deck_lines
+    case, grid = _axi("semi_rigid", "elastic")
+    text = "\n".join(deck_lines(case, grid))
+    for kw in ("*VISCO", "MODULI=", "PRONY"):
+        assert kw not in text, kw
+    assert text.count("*STEP") == 1
+
+
+def test_axi_elements_are_counter_clockwise_and_print_is_on_top():
+    """Positive signed area in the written (r, y) coordinates, and face S3
+    (nodes 3-4) of every print element lies on the road surface y = 0."""
+    import numpy as np
+    case, grid = _axi()
+    xy = {}
+    for j, d in enumerate(grid.depth):
+        for i, r in enumerate(grid.r):
+            xy[grid.node_id(i, j)] = (r, -d)
+    for j in range(grid.NY):
+        for i in range(grid.NR):
+            pts = np.array([xy[n] for n in grid.connectivity(i, j)])
+            x, y = pts[:, 0], pts[:, 1]
+            area = 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
+            assert area > 0, f"element ({i}, {j}) is clockwise"
+    for i in range(grid.n_print):
+        n3, n4 = grid.connectivity(i, 0)[2:]
+        assert xy[n3][1] == 0.0 and xy[n4][1] == 0.0
+
+
+def test_axi_print_edge_is_a_node():
+    case, grid = _axi()
+    assert abs(grid.r[grid.n_print] - case.tyre.radius) < 1e-12
+    assert grid.r[grid.n_print + 1] > case.tyre.radius
+    assert grid.r[-1] == case.mesh.R_out
+
+
+def test_axi_observation_row_is_bottom_of_surface_layer():
+    case, grid = _axi()
+    h1 = case.structure.h[0]
+    assert grid.depth[grid.j_obs + 1] == h1
+    assert grid.depth[grid.j_obs] < h1
+    assert grid.layer_of_row[grid.j_obs] == 0
+    assert grid.layer_of_row[grid.j_obs + 1] == 1
+
+
+def test_viscoelastic_validation_and_matching():
+    from movingload.axi_config import Viscoelastic
+    try:
+        Viscoelastic(E0=1e9, nu=0.3, g=(0.6, 0.5), tau=(1e-3, 1e-1))
+    except ValueError as exc:
+        assert "sum(g)" in str(exc)
+    else:
+        raise AssertionError("sum(g) >= 1 was accepted")
+    ve = Viscoelastic.matched(10e9, 0.05, 0.25, (0.3, 0.4), (1e-3, 1e-1))
+    assert abs(ve.E_at(0.05) - 10e9) < 1.0
+    assert ve.E_at(0.0) == ve.E0 and ve.E_inf < ve.E_at(1e3) * 1.0001
+
+
+def test_axi_case_validation():
+    from movingload.axi_config import AxiCase, placeholder_visco
+    s = STRUCTURES["semi_rigid"]
+    for kwargs, msg in (({"material": "viscoelastic"}, "needs at least one"),
+                        ({"material": "elastic", "visco": placeholder_visco(s)},
+                         "cannot carry")):
+        try:
+            AxiCase(case_id="x", structure=s, **kwargs)
+        except ValueError as exc:
+            assert msg in str(exc)
+        else:
+            raise AssertionError(kwargs)
+
+
+def test_creep_output_times_match_the_steps():
+    from movingload.axi_config import CreepSteps
+    c = CreepSteps()
+    times = c.output_times()
+    assert times[0] == 0.0
+    assert abs(times[-1] - c.t_max) < 1e-9 * c.t_max
+    assert all(b > a for a, b in zip(times, times[1:]))
+    assert len(times) == 1 + c.n_first + c.n_decades * c.n_per_decade
+
+
+def test_axi_metadata_matches_the_deck():
+    from movingload.axi_inp import build as axi_build
+    case, grid = _axi("semi_rigid", "viscoelastic")
+    info = axi_build(case, _tmp())
+    meta = json.loads(Path(info["mesh_json"]).read_text())
+    assert meta["model"] == "axisymmetric"
+    obs = meta["observation"]
+    assert obs["OBS_ELEM_IDS"] == grid.obs_elem_ids
+    assert len(obs["r_centres"]) == grid.NR
+    assert meta["time"]["static_step"] == "INSTANT"
+    assert meta["time"]["s_max"] == case.creep.t_max
+    assert sorted(meta["viscoelastic_layers"]) == ["ASPHALT", "BINDER"]
+    assert meta["tyre_geometry"]["load_face"] == "S3"
+    assert meta["time"]["output_times"] == case.creep.output_times()
+
+
+def test_read_response_rejects_a_wrong_time_axis():
+    """A duplicated or missing frame must be caught when the CSV is read,
+    not discovered as a kink in the synthesised history."""
+    import numpy as np
+    from movingload.superpose import read_response
+    d = _tmp()
+    times = [0.0, 0.5, 1.0]
+    meta = {"model": "axisymmetric", "case_id": "c",
+            "time": {"output_times": times}}
+    (d / "c_mesh.json").write_text(json.dumps(meta))
+    for bad in ([0.0, 0.5, 0.500001, 1.0], [0.0, 1.0]):
+        lines = ["s,element_id,r,E11,E22,E33,E12"]
+        lines += [f"{t},{e},{r},1,1,1,0" for t in bad for e, r in ((1, 0.1), (2, 0.2))]
+        (d / "c_axi_response.csv").write_text("\n".join(lines) + "\n")
+        try:
+            read_response(d)
+        except ValueError as exc:
+            assert "the deck defines 3" in str(exc)
+        else:
+            raise AssertionError(bad)
+
+
+def test_axi_run_dir_is_self_contained_without_a_subroutine():
+    from movingload.axi import prepare_axi
+    out = prepare_axi("rigid", "viscoelastic", out_root=_tmp())
+    d = out["run_dir"]
+    for name in ("axi_rigid_viscoelastic.inp", "axi_rigid_viscoelastic_mesh.json",
+                 "extract_axi.py", "submit.sh"):
+        assert (d / name).is_file(), name
+    assert not (d / "dload.f").exists()
+    sh = (d / "submit.sh").read_text()
+    assert "user=" not in sh
+    assert "abaqus python extract_axi.py axi_rigid_viscoelastic.odb" in sh
+    assert "interactive" in sh
+
+
+def _synthetic_response(J=None):
+    import numpy as np
+    from movingload.superpose import Response
+    r = np.linspace(0.004, 5.9, 600)
+    f11 = 1e-5 * np.exp(-(r / 0.3) ** 2) * (1 - (r / 0.25) ** 2)
+    f33 = 1e-5 * np.exp(-(r / 0.4) ** 2)
+    f22 = -2e-5 * np.exp(-(r / 0.2) ** 2)
+    if J is None:
+        s = np.array([0.0])
+        J = np.ones(1)
+    else:
+        s, J = J
+    return r, (f11, f22, f33), Response(s=s, r=r, E11=J[:, None] * f11,
+                                        E22=J[:, None] * f22, E33=J[:, None] * f33)
+
+
+def test_superposition_elastic_telescopes_to_the_spatial_map():
+    """With an s-independent response the Boltzmann sum must collapse to
+    R(rho(t)) exactly: radial strain ahead of the tyre is longitudinal."""
+    import numpy as np
+    from movingload.superpose import moving_history
+    r, (f11, f22, f33), resp = _synthetic_response()
+    h = moving_history(resp, 7.6, tyre_x=(0.16,), x_obs=0.16)
+    rho = np.abs(h["z_rel"])
+    assert np.allclose(h["E33"], np.interp(rho, r, f11), rtol=0, atol=1e-15)
+    assert np.allclose(h["E11"], np.interp(rho, r, f33), rtol=0, atol=1e-15)
+    assert np.allclose(h["E22"], np.interp(rho, r, f22), rtol=0, atol=1e-15)
+
+
+def test_superposition_rotates_the_second_tyre():
+    """Abreast of a print (dz = 0) its longitudinal strain at P is the hoop
+    component and its transverse strain the radial one."""
+    import numpy as np
+    from movingload.superpose import moving_history
+    r, (f11, f22, f33), resp = _synthetic_response()
+    one = moving_history(resp, 7.6, tyre_x=(0.16,), x_obs=0.16)
+    two = moving_history(resp, 7.6, tyre_x=(0.16, -0.16), x_obs=0.16)
+    k = int(np.argmin(np.abs(two["z_rel"])))
+    assert abs(two["E33"][k] - one["E33"][k] - np.interp(0.32, r, f33)) < 1e-15
+    assert abs(two["E11"][k] - one["E11"][k] - np.interp(0.32, r, f11)) < 1e-15
+
+
+def test_superposition_viscoelastic_speed_limits():
+    """R = f(rho) J(s): very fast -> f J(0), very slow -> f J(inf)."""
+    import numpy as np
+    from movingload.superpose import moving_history
+    s = np.concatenate(([0.0], np.logspace(-7, 2, 500)))
+    J = 1.0 + 2.0 * (1 - np.exp(-s / 0.05))
+    r, (f11, _, _), resp = _synthetic_response((s, J))
+    for v, half, factor in ((1e5, 3.5, 1.0), (0.08, 0.7, 3.0)):
+        h = moving_history(resp, v, tyre_x=(0.16,), x_obs=0.16, half_length=half)
+        k = int(np.argmin(np.abs(h["z_rel"])))
+        assert abs(h["E33"][k] / f11[0] - factor) < 0.01 * factor, (v, h["E33"][k] / f11[0])
+
+
+def test_superposition_refuses_what_it_cannot_resolve():
+    import numpy as np
+    from movingload.superpose import moving_history
+    s = np.array([0.0, 0.1, 1.0])
+    r, _, resp = _synthetic_response((s, np.ones(3)))
+    for kwargs, msg in (({"speed": 1.0}, "creep analysis only"),
+                        ({"speed": 100.0, "half_length": 7.0}, "R_out")):
+        try:
+            moving_history(resp, **kwargs)
+        except ValueError as exc:
+            assert msg in str(exc), exc
+        else:
+            raise AssertionError(kwargs)
 
 
 # ------------------------------------------------------------ sanitised

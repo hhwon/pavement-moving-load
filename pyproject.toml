@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "movingload"
-version = "1.0.0"
-description = "Moving wheel load on a layered elastic pavement: Abaqus deck generation, cluster submission and post-processing"
+version = "1.1.0"
+description = "Moving wheel load on a layered linear (elastic or viscoelastic) pavement: Abaqus deck generation, cluster submission and post-processing"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"

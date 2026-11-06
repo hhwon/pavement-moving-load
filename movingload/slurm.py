@@ -41,13 +41,20 @@ cd "{workdir}"
 echo "[$(date)] abaqus: $({abaqus} whereami 2>/dev/null || command -v {abaqus} || echo NOT_FOUND)"
 
 echo "[$(date)] solving {job}"
-{abaqus} job={job} input={inp} user={user_sub} cpus={cpus} interactive
+{abaqus} job={job} input={inp}{user_opt} cpus={cpus} interactive
 echo "[$(date)] solver finished"
 
-echo "[$(date)] extracting E33 history"
-{abaqus} python extract_strain.py {job}.odb
+echo "[$(date)] reducing the ODB to CSV"
+{abaqus} python {extractor} {job}.odb
 echo "[$(date)] done"
 """
+
+
+def _user_opt(user_sub: str | None) -> str:
+    # The axisymmetric deck loads a fixed footprint with *DSLOAD and needs
+    # no subroutine; `user=` with nothing behind it would make Abaqus try
+    # (and fail) to compile one.
+    return f" user={user_sub}" if user_sub else ""
 
 
 def _resolve(abaqus_cmd: str | None, module_load: str | None) -> tuple[str, str]:
@@ -58,10 +65,11 @@ def _resolve(abaqus_cmd: str | None, module_load: str | None) -> tuple[str, str]
     return cmd, mod_block
 
 
-def slurm_script(job: str, inp: str, user_sub: str = "dload.f",
+def slurm_script(job: str, inp: str, user_sub: str | None = "dload.f",
                  resources: Resources | None = None,
                  abaqus_cmd: str | None = None,
-                 module_load: str | None = None) -> str:
+                 module_load: str | None = None,
+                 extractor: str = "extract_strain.py") -> str:
     """SLURM batch script for one case.
 
     `interactive` on the abaqus line is mandatory: without it the command
@@ -87,19 +95,22 @@ def slurm_script(job: str, inp: str, user_sub: str = "dload.f",
 
     return ("#!/bin/bash\n" + "\n".join(directives) + "\n\n"
             + _BODY.format(workdir="$SLURM_SUBMIT_DIR", module_load=mod_block,
-                           abaqus=cmd, job=job, inp=inp, user_sub=user_sub,
-                           cpus=r.cpus))
+                           abaqus=cmd, job=job, inp=inp,
+                           user_opt=_user_opt(user_sub), cpus=r.cpus,
+                           extractor=extractor))
 
 
-def local_script(job: str, inp: str, user_sub: str = "dload.f",
+def local_script(job: str, inp: str, user_sub: str | None = "dload.f",
                  cpus: int = 4, abaqus_cmd: str | None = None,
-                 module_load: str | None = None) -> str:
+                 module_load: str | None = None,
+                 extractor: str = "extract_strain.py") -> str:
     """Plain shell script for running the same case on a workstation."""
     cmd, mod_block = _resolve(abaqus_cmd, module_load)
     return ("#!/bin/bash\n"
             + _BODY.format(workdir="$(dirname \"$0\")", module_load=mod_block,
-                           abaqus=cmd, job=job, inp=inp, user_sub=user_sub,
-                           cpus=cpus))
+                           abaqus=cmd, job=job, inp=inp,
+                           user_opt=_user_opt(user_sub), cpus=cpus,
+                           extractor=extractor))
 
 
 def write(path: str | Path, text: str) -> Path:

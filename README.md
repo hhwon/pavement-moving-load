@@ -34,7 +34,17 @@ export MOVINGLOAD_REMOTE_ROOT=/scratch/$USER/movingload
 python -m movingload.submit --structure semi_rigid --motion accel
 ```
 
-Materials are **isotropic linear elastic** — one Young's modulus per layer.
+Materials are **isotropic and linear** — one Young's modulus per layer; the
+axisymmetric model can also make the asphalt **linear viscoelastic**:
+
+```bash
+# axisymmetric step response + superposition of the moving dual tyre
+python -m movingload.axi --structure semi_rigid --material viscoelastic \
+                         --speed 7.6 --speed 16.7
+python -m movingload.plots moving runs/axi_semi_rigid_viscoelastic
+```
+
+See [docs/axisymmetric.md](docs/axisymmetric.md).
 Units are SI throughout (m, Pa, s); strains follow Abaqus' convention,
 tension positive.
 
@@ -119,13 +129,13 @@ pip install -e .            # or just: export PYTHONPATH=$PWD:$PYTHONPATH
 Requires **Python 3.10+** and **numpy**. `matplotlib` is needed only for the
 figures (`pip install -e ".[plots]"`). Cluster submission needs `ssh` and
 `rsync`. Solving needs **Abaqus/Standard** with a Fortran compiler configured for
-user subroutines.
+user subroutines (the axisymmetric model needs no subroutine and no compiler).
 
 Deck generation touches neither Abaqus nor the network, so the whole modeling
 stage — and the entire test suite — runs anywhere:
 
 ```bash
-python tests/test_build.py        # 32 checks, a few seconds
+python tests/test_build.py        # 50 checks, a few seconds
 ```
 
 ---
@@ -232,9 +242,15 @@ movingload/
 ├── cluster.py         optional ssh/rsync/sbatch transport
 ├── submit.py          top-level driver
 ├── extract_strain.py  ODB → CSV, under `abaqus python`
-└── plots.py           pulse, heat map, comparison
-docs/                  model.md, pipeline.md, cluster.md
-tests/test_build.py    32 offline checks
+├── axi_config.py      axisymmetric: Viscoelastic (Prony) / AxiMesh / CreepSteps / AxiCase
+├── axi_mesh.py        structured CAX4 grid, print edge node, observation row
+├── axi_inp.py         step-response deck (*STATIC + *VISCO) and metadata
+├── extract_axi.py     ODB → R(r, s) CSV, under `abaqus python`
+├── superpose.py       moving dual tyre from R(r, s): Boltzmann + tensor rotation
+├── axi.py             axisymmetric driver
+└── plots.py           pulse, heat map, comparison, moving (axisymmetric)
+docs/                  model.md, pipeline.md, cluster.md, axisymmetric.md
+tests/test_build.py    50 offline checks
 ```
 
 ---

@@ -5,6 +5,8 @@ Figures from the extracted CSVs.
     python -m movingload.plots heatmap runs/semi_rigid_vertical
     python -m movingload.plots compare runs/flexible_vertical runs/semi_rigid_vertical \\
                                        runs/rigid_vertical
+    python -m movingload.plots moving  runs/axi_semi_rigid_elastic \\
+                                       runs/axi_semi_rigid_viscoelastic
 
 Each run directory is expected to hold what `extract_strain.py` produced —
 `<case_id>_e33_history.csv` and `<case_id>_e33_centre.csv` — next to the
@@ -163,6 +165,45 @@ def plot_compare(run_dirs: List[str | Path], out: str | Path | None = None,
     return out
 
 
+def plot_moving(run_dirs: List[str | Path], out: str | Path | None = None) -> Path:
+    """Overlay every `<case>_moving_v*.csv` (axisymmetric superposition)
+    found in the given run directories, against tyre position."""
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True)
+    n = 0
+    for d in run_dirs:
+        d = Path(d)
+        meta = json.loads(next(d.glob("*_mesh.json")).read_text())
+        for csv_path in sorted(d.glob(f"{meta['case_id']}_moving_v*.csv"),
+                               key=lambda q: float(q.stem.split("_v")[-1]
+                                                   .replace("_single", ""))):
+            h = np.genfromtxt(csv_path, delimiter=",", names=True)
+            v = csv_path.stem.split("_v")[-1]
+            single = v.endswith("_single")
+            label = (f"{meta['material']}, v = {v.replace('_single', '')} m/s"
+                     + (", single tyre" if single else ""))
+            for ax, comp in zip(axes, ("E33", "E11")):
+                ax.plot(h["z_rel"], h[comp] * 1e6, "-", lw=1.6, color=f"C{n}",
+                        label=label)
+            n += 1
+    if n == 0:
+        raise FileNotFoundError("no *_moving_v*.csv — run movingload.superpose first")
+    for ax, name in zip(axes, ("longitudinal  $E_{33}$", "transverse  $E_{11}$")):
+        ax.axhline(0, color="0.6", lw=0.6)
+        ax.axvline(0, color="0.8", lw=0.6)
+        ax.set_xlim(-1.0, 1.0)
+        ax.set_xlabel("tyre centre minus observation point, z (m)")
+        ax.set_title(name)
+    axes[0].set_ylabel(r"strain  ($\mu\varepsilon$, tension +)")
+    axes[0].legend(fontsize=8)
+    fig.suptitle("Axisymmetric superposition: moving dual tyre, "
+                 "bottom of the surface layer", fontsize=10)
+    fig.tight_layout()
+    out = Path(out) if out else Path(run_dirs[0]).parent / "moving_axi.png"
+    fig.savefig(out, dpi=160)
+    plt.close(fig)
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     ap = argparse.ArgumentParser(prog="python -m movingload.plots")
@@ -173,12 +214,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("run_dirs", nargs="+")
     p.add_argument("--out")
     p.add_argument("--title", default="")
+    p = sub.add_parser("moving")
+    p.add_argument("run_dirs", nargs="+")
+    p.add_argument("--out")
     args = ap.parse_args(argv)
 
     if args.cmd == "pulse":
         print("wrote", plot_pulse(args.run_dir, args.out))
     elif args.cmd == "heatmap":
         print("wrote", plot_heatmap(args.run_dir, args.out))
+    elif args.cmd == "moving":
+        print("wrote", plot_moving(args.run_dirs, args.out))
     else:
         print("wrote", plot_compare(args.run_dirs, args.out, args.title))
     return 0

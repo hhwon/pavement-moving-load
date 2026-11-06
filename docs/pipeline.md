@@ -4,6 +4,11 @@ Configuration → deck → solve → CSV → figures, with the API for each stag
 For the physics see [model.md](model.md); for the transport see
 [cluster.md](cluster.md).
 
+This page describes the 3-D route. The axisymmetric route has a different
+pipeline: a stationary step-response deck with no `dload.f`, `extract_axi.py`
+producing R(r, s), then `movingload.superpose` building the moving dual tyre.
+It is described in [axisymmetric.md](axisymmetric.md).
+
 ---
 
 ## Stage 0 — configuration

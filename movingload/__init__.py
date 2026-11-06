@@ -1,5 +1,5 @@
 """
-movingload — a moving wheel load on a layered elastic pavement, in Abaqus.
+movingload — a moving wheel load on a layered linear pavement, in Abaqus.
 
 A standard dual-tyre axle travels along a three-dimensional half-pavement
 model while the longitudinal strain at the bottom of the surface layer is
@@ -24,17 +24,27 @@ Modules
     extract_strain  runs under `abaqus python`: ODB -> CSV
     plots         strain pulse, (t, z) heat map, multi-case comparison
 
+  axisymmetric route (vertical load only; elastic or viscoelastic asphalt)
+    axi_config    Viscoelastic (Prony) / AxiMesh / CreepSteps / AxiCase
+    axi_mesh      structured CAX4 grid
+    axi_inp       step-response deck: *STATIC then *VISCO
+    extract_axi   runs under `abaqus python`: ODB -> R(r, s) CSV
+    superpose     moving dual tyre from R(r, s) by superposition
+    axi           driver
+
 Quick start
 -----------
     python -m movingload.submit --structure semi_rigid --motion vertical --build-only
 
-The material model is isotropic linear elasticity throughout — one Young's
-modulus per layer, no tension/compression distinction.
+The 3-D model is isotropic linear elastic; the axisymmetric model may make
+the asphalt layers linear viscoelastic (Prony series).  Either way every
+layer is isotropic, with no tension/compression distinction.
 
 Units are SI everywhere: metres, pascals, seconds.  Strains are reported in
 Abaqus' native convention, tension positive.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __all__ = ["config", "mesh", "inp_builder", "dload", "slurm", "cluster",
-           "submit", "plots"]
+           "submit", "plots", "axi_config", "axi_mesh", "axi_inp",
+           "superpose", "axi"]

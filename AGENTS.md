@@ -12,14 +12,29 @@ silently produce wrong answers. Deeper detail lives in
 
 `movingload` drives a **moving wheel load** across a 3-D layered pavement in
 Abaqus and extracts the longitudinal strain (`E33`) history at the bottom of the
-surface layer. Materials are **isotropic linear elastic** — there is no
-tension/compression distinction anywhere in this repository.
+surface layer. Materials are **isotropic and linear**: elastic in the 3-D
+model; in the axisymmetric model the asphalt layers may also be **linear
+viscoelastic** (Prony). There is no tension/compression distinction anywhere
+in this repository.
 
 ```bash
 export PYTHONPATH=$PWD:$PYTHONPATH
 python -m movingload.submit --structure semi_rigid --motion vertical --build-only
-python tests/test_build.py        # 32 offline checks, seconds
+python -m movingload.axi --structure semi_rigid --material viscoelastic --build-only
+python tests/test_build.py        # 50 offline checks, seconds
 ```
+
+Two models of the same physics:
+
+| | 3-D (`movingload.submit`) | axisymmetric (`movingload.axi`) |
+|---|---|---|
+| load | DLOAD moves the print | stationary step load, moved afterwards by superposition (`movingload.superpose`) |
+| asphalt | elastic | elastic or linear viscoelastic |
+| traction (`accel`/`brake`) | yes | **no** — not axisymmetric |
+| speed | none (time is a parameter) | physical, chosen at superposition; one solve serves every speed |
+
+See [docs/axisymmetric.md](docs/axisymmetric.md) for why the superposition is
+exact under the model's assumptions, and its pitfalls.
 
 **Deck generation needs neither Abaqus nor a network.** Always verify with
 `--build-only` before spending solver time.
@@ -193,6 +208,29 @@ the same domain and the same 52 080-element count, so differences between them
 are structural, not mesh artefacts. A test enforces it. If you add a structure,
 keep `sum(n_elems)` equal to the others or say clearly that it is not
 comparable.
+
+---
+
+### Axisymmetric pitfalls
+
+**The axial axis points up** (y = −depth), unlike the 3-D model. Elements are
+counter-clockwise in (r, y) and the pressure is on face `S3`; a test checks
+both.
+
+**Prony data needs `MODULI=INSTANTANEOUS`.** Abaqus' default with Prony terms
+is LONG TERM, which would read E0 as E∞. `axi_inp` writes it; keep it.
+
+**The shipped Prony series is a placeholder** (`PLACEHOLDER_PRONY_*`), not a
+fitted material. Viscoelastic numbers mean nothing until it is replaced.
+
+**Superposition limits are enforced, not extrapolated.** The passage time must
+not exceed `CreepSteps.t_max` and the farthest tyre position must stay inside
+`AxiMesh.R_out`; `superpose` raises otherwise.
+
+**Output names follow the 3-D convention after superposition** (E33
+longitudinal, E11 transverse, E22 vertical), but the raw
+`<case>_axi_response.csv` is in axisymmetric components (E11 radial, E22
+axial, E33 hoop). Don't mix them.
 
 ---
 
